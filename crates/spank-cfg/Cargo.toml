@@ -1,0 +1,15 @@
+[package]
+name = "spank-cfg"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+spank-core = { path = "../spank-core" }
+spank-obs = { path = "../spank-obs" }
+figment = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+clap = { workspace = true }
+thiserror = { workspace = true }

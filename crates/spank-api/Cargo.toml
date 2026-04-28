@@ -1,0 +1,21 @@
+[package]
+name = "spank-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+spank-core = { path = "../spank-core" }
+spank-obs = { path = "../spank-obs" }
+spank-cfg = { path = "../spank-cfg" }
+tokio = { workspace = true }
+axum = { workspace = true }
+axum-server = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+parking_lot = { workspace = true }
+arc-swap = { workspace = true }

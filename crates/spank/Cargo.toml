@@ -1,0 +1,27 @@
+[package]
+name = "spank"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "spank"
+path = "src/main.rs"
+
+[dependencies]
+spank-core = { path = "../spank-core" }
+spank-obs = { path = "../spank-obs" }
+spank-cfg = { path = "../spank-cfg" }
+spank-api = { path = "../spank-api" }
+spank-hec = { path = "../spank-hec" }
+spank-files = { path = "../spank-files" }
+spank-shipper = { path = "../spank-shipper" }
+spank-store = { path = "../spank-store" }
+spank-tcp = { path = "../spank-tcp" }
+tokio = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+serde_json = { workspace = true }
+tempfile = "3.10"
