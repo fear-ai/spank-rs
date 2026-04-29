@@ -1,8 +1,6 @@
 # Docs — Documentation System for spank-rs
 
-`Focus: foundation` — this document is the central documentation map and the definition of the system itself. It supersedes the ad-hoc documents previously at the spank-rs root and under `docs/` (`Tracks.md`, `docs/errors.md`, `docs/network-libraries.md`, `docs/observability.md`, and the previous `Docs.md`), whose content has been redistributed into the system this file defines.
-
-The audience is the developer and any model session that edits, reviews, or adds to the documentation tree. It is read once at session start when documentation is in scope, and again whenever a placement question arises. Every other document in the tree references this file for the rules; this file is the only document that enumerates other documents and the only one that defines the rules they obey.
+`Focus: foundation` — this document is the central documentation map of the system.  The audience is the developer and model that edits and reviews documentats.  Every other document gets the rules for content inclusion and presentation from Docs, that solely enumerates other documents.
 
 ---
 
@@ -19,31 +17,31 @@ The audience is the developer and any model session that edits, reviews, or adds
 
 ---
 
-## 1. Goals and scope
+## 1. Goals and Scope
 
-The documentation system has three goals, each a response to a failure mode that grew in the upstream Python project (`spank-py`) despite that project having an explicit document map in `spank-py/Process.md §4`.
+The documentation system has three goal:
 
-The first goal is to keep stable reference material separate from in-flight planning material, so that updating a weekly status note does not touch a file whose audience expects it to be stable. The Python project mixes both inside `HEC.md`, `Architecture.md`, `Infra.md`, and `Product.md`, and the cost is that a reader cannot tell from a file's modification timestamp whether anything they care about has changed.
+1) Enumerate and define the rules for all project documents.
 
-The second goal is to confine the enumeration of documents to a single place. When every document carries its own list of "see also the X document for Y", the lists drift, and a deletion or rename has to chase paraphrased descriptions across the tree. In this system, the documentation map lives only in this file (`§4` below), and other documents reference specific sections rather than naming peer documents.
+2) Stable reference separate from frequently updated planning material.
 
-The third goal is to keep decisions visible as a distinct artifact class. A decision that produces a permanent record cannot be silently amended by a reorganization; it can only be superseded by a new decision that explicitly cites it. Decisions record themselves in the Reference doc or research file where they are most relevant, as a dated one-paragraph summary — not in a separate directory of ADR files.
+3) Keep decisions visible and distinct.
 
-The scope of this document is the documentation system. The reasoning framework, methodology, and project lifecycle that govern *what* the documents say live in `Procesp.md`. The two are companions: `Procesp.md` answers "how do we decide what to write", and this file answers "where does what we wrote go".
+The scope of this document is the documentation system. The reasoning framework, methodology, and project lifecycle that govern will live in `Procesp.md`.
 
 ## 2. Document classes
 
-Every document in the tree belongs to exactly one of four classes. The class is declared by a `Focus:` line in the document's intro paragraph (see `§3`) and governs which content is allowed in the file.
+Documents in the tree belong to one of four classes declared by a `Focus:` line in the intro paragraph.
 
-The **foundation** class holds project framing and the definition of the system itself: what the project is, who it is for, how decisions are made, and where each kind of content lives. Foundation documents change rarely — typically when the project's framing changes or when the documentation system itself is revised. The audience is any reader, especially first-time readers, reviewers, and model sessions orienting at restart. Examples in this tree: this file (`Docs.md`), `Procesp.md`, and the future `README.md`. Foundation documents are deliberately short — typically under 600 lines — because they are read by every reader, not skimmed by a specialist. They cross-reference into the other classes; the other classes do not paraphrase Foundation content.
+The **foundation** class holds project framing and the definition of the system itself: what the project is, who it is for, how decisions are made, and where each kind of content lives. Foundation documents change rarely — typically when the project's framing changes or when the documentation system itself is revised. The audience is a first-time reader, reviewer, and Model orienting at start. Examples include this file (`Docs.md`), `Procesp.md`, and the future `README.md`. Foundation documents are deliberately short and cross-reference others; the other document classes do not paraphrase Foundation content.
 
-The **reference** class holds stable technical truth: how a subsystem is designed, what its contracts and protocols are, what its error taxonomy is, what the network library choices are. Reference documents change when a design decision changes. The audience is a developer working on or against the subsystem the document owns. Reference documents may be long when the domain warrants it (1000–2000 lines is acceptable) because they accrete domain detail; what they may not contain is status text, dated annotations, work-item lists, or prioritization tables. A Reference doc that depends on an unresolved question carries a one-line `*Open question:* see Plan.md §X.Y` stub, never an inline discussion of the question.
+The **reference** class holds stable technical truths: how a subsystem is designed and implemented, what industry patterns and standards are used, contracts and protocols, error taxonomy and the network library choice and operating mode. Reference documents change when a design decision changes. The audience is a developer working on the subsystem the document owns. Reference documents accrete domain detail but not intermediate status or dated annotations.
 
-The **plan** class holds active tracking: tasks, open issues, open questions awaiting decision, deferred items, in-flight work logs. Plan documents change weekly or daily during active work. The audience is the developer and the session-bound model resuming work. There is exactly one Plan document per concern at any time; in this tree that is `Plan.md` at the root. Plan documents have a strict internal schema (work item ID prefix, status vocabulary, fixed columns) so entries are scannable. They do not contain design rationale — rationale lives in the relevant Reference doc — and once a question resolves, it leaves Plan and either disappears (trivial) or becomes a recorded decision in the relevant Reference or research doc (substantive).
+The **plan** class holds active tracking: tasks, open issues, questions awaiting decision, deferred items, in-flight work logs. Plan documents change frequently, even daily during active work. The audience is the Developer and the Model resuming work.  Here `Plan.md` at the root is the singular planning document that has a strict internal structure and schema (work item ID format, status vocabulary, fixed columns).  It does not contain design rationale that lives in the Reference doc.
 
-The **research** class holds investigatory and analytical material: surveys of alternatives, Python-to-Rust comparisons, infrastructure option analyses, storage backend evaluations. Research documents are stable but not contracts — they are the analytical input that produced Reference docs, not subsystem-level specifications. They change when new investigation occurs or when a prior analysis proves wrong. The audience is a developer or model session seeking context on *why* a design choice was made or *what* alternatives were considered. Research documents do not make authoritative claims about current implementation state; those live in Reference docs. In this tree the research class documents live under `research/` at the project root.
+The **research** class holds investigatory and analytical material like: surveys of alternatives, Python-to-Rust comparisons, infrastructure option analyses, storage backend evaluations. Research documents become stable buti are not contracts — they are the analytical input that produced Reference docs. They will change when new investigations occur or when a prior analysis proves wrong. The audience is Developer or Model seeking context on a design choice or the alternatives considered. Research documents make no authoritative claims about the implementation state; those live in Reference docs. In this tree the research class documents live under `research/` at the project root.
 
-The four classes form a flow: research produces design choices; open questions go into Plan; Plan resolves into Reference content or recorded decisions; Foundation is the static anchor that defines the system.
+The four classes form a flow: Foundation is the static anchor for the system.  Research produces design choices that resolve into Reference; open questions and definition and development status go into Plan.
 
 ## 3. Document format
 

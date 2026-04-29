@@ -1,0 +1,19 @@
+%% Source of truth: Spast.md §11.2 (thread inventory)
+%% Owner: src/spank/core/thread_base.py, src/spank/core/commander.py
+%% Every long-lived thread in the system with owner and stop mechanism.
+
+flowchart TB
+  Commander[Commander Collector]
+  Commander --> HEC[HEC Receiver\nstop: server_close]
+  Commander --> TCP[TCP Receiver\nstop: socket close]
+  Commander --> UDP[UDP Receiver\nstop: socket close]
+  Commander --> FileMon[File Monitor\nstop: _stop_event]
+  Commander --> IdxW[Index Writers x N\nstop: Sentinel + join]
+  Commander --> API[API Server\nstop: server_close]
+  Commander --> Snd[Sender / Forwarder\nstop: _stop_event]
+  Commander --> Maint[Maintenance Loop\nstop: _stop_event]
+
+  HEC --> HECConn[Per-connection handlers\nstop: socket close]
+  TCP --> TCPRecv[Per-connection receivers\nstop: socket close]
+  FileMon --> Parse[Parse workers\nstop: Sentinel]
+  API --> APIH[Per-request handlers\nstop: socket close]

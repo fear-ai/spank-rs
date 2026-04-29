@@ -1,10 +1,19 @@
-# Observability
+# Observability — Logs, Metrics, and Profiling
 
-Scope: how `spank-rs` produces logs, metrics, and baseline numbers, and where each
-signal originates. This document is the contract between the runtime and the
-operator. Names listed here MUST match the constants in `spank-obs::metrics::names`
-and the macros in `spank-obs::lib`; if a name needs to change, change it in code
-and here in the same commit.
+`Focus: reference` — the contract between the runtime and the operator: log macros, metric names and types, baseline workload, and profiler choices. Does not receive task lists, status text, or per-metric implementation notes that belong in `Plan.md`.
+
+This document changes when a metric is added or renamed, a log macro category changes, or the profiling recommendation changes. Metric names listed here must match the constants in `spank-obs::metrics::names` and the macros in `spank-obs::lib`; if a name needs to change, change it in code and here in the same commit. Sibling reference documents: `docs/Errors.md` (the error and backpressure paths whose state the metrics surface).
+
+---
+
+## Table of Contents
+
+1. [Logs](#1-logs)
+2. [Metrics](#2-metrics)
+3. [Baseline numbers](#3-baseline-numbers)
+4. [Profiling](#4-profiling)
+
+---
 
 ## 1. Logs
 
@@ -13,15 +22,13 @@ single entry point is `init_tracing(&TracingConfig)`, called once near the top o
 `main`. The function is idempotent — subsequent calls return `Ok(())` without
 changing the subscriber, so a partial init can never wedge the process.
 
-Configuration knobs:
-
-- `tracing.format` — `pretty` (development) or `json` (machines). Default `pretty`.
-- `tracing.filter` — `tracing_subscriber::EnvFilter` directive. Default
-  `info,spank=info`. `RUST_LOG` overrides this when set, matching ecosystem
-  expectations.
-- `tracing.file` — optional path. When set, a daily-rotated JSON appender is
-  added in addition to stdout, and a `WorkerGuard` is held in a process-wide
-  `OnceCell` to keep the background flush thread alive for the program lifetime.
+Configuration knobs expose three controls. `tracing.format` accepts `pretty`
+(development) or `json` (machines), defaulting to `pretty`. `tracing.filter`
+accepts a `tracing_subscriber::EnvFilter` directive, defaulting to `info,spank=info`;
+`RUST_LOG` overrides this when set, matching ecosystem expectations. `tracing.file`
+is an optional path; when set, a daily-rotated JSON appender is added in addition
+to stdout, and a `WorkerGuard` is held in a process-wide `OnceCell` to keep the
+background flush thread alive for the program lifetime.
 
 Categorized macros wrap `tracing::info!` and `tracing::error!` with a `category`
 field so dashboards and log shippers can route on a single key:
@@ -43,7 +50,9 @@ exposition for `/metrics/prometheus`. A second constructor,
 `install_prometheus_with_listener(addr)`, binds a dedicated HTTP listener for
 deployments that prefer to keep scrapes off the API port.
 
-The naming convention is `spank.<subsystem>.<noun>_<unit>`:
+The naming convention is `spank.<subsystem>.<noun>_<unit>`. The table below lists
+every metric currently defined; the type, label (if any), and operational meaning
+for each.
 
 | Name | Type | Meaning |
 | - | - | - |
@@ -57,13 +66,22 @@ The naming convention is `spank.<subsystem>.<noun>_<unit>`:
 | `spank.tcp.bytes_in_total` | counter | Bytes read on TCP receiver sockets. |
 | `spank.tcp.bytes_out_total` | counter | Bytes written on TCP shipper sockets. |
 | `spank.tcp.connections_current` | gauge | Open inbound TCP connections. |
-| `spank.tcp.syscall_errors_total` | counter, label `op` | Failed syscalls (`accept`, `read`, `write`, `set_nodelay`, `bind`). |
+| `spank.tcp.syscall_errors_total` | counter, label `syscall` | Failed syscalls (`accept`, `read`, `write`, `set_nodelay`, `bind`). |
 | `spank.store.inserts_total` | counter | Rows committed to the store. |
 | `spank.store.insert_duration_seconds` | histogram | Wall-clock duration of `commit()`. |
 | `spank.process.panics_total` | counter | Caught panics from worker tasks. |
 
 Call sites use the constants in `spank-obs::metrics::names`, never literal
 strings; renaming a metric is one edit instead of grep-and-replace.
+
+Two items in this table are flagged for future resolution. `spank.tcp.syscall_errors_total`
+uses the label key `syscall` in the emitting code (`spank-tcp::receiver`); any
+dashboard or alert expression must use `syscall`, not `op` — any existing dashboards
+built against `op` must be updated. `spank.store.insert_duration_seconds` is listed
+as a live histogram but the SQLite backend (`spank-store::sqlite`) does not currently
+emit it — only the counter `spank.store.inserts_total` is incremented at the commit
+site; the histogram constant exists in `spank-obs::metrics::names` and instrumenting
+`SqliteBackend::commit` is the remaining step.
 
 ## 3. Baseline numbers
 
@@ -89,17 +107,24 @@ canonical baseline.
 
 ## 4. Profiling
 
-Profiling is opt-in and out of band. Recommended tools:
-
-- `samply` for sampling CPU profiles on macOS and Linux.
-- `tokio-console` (gated by a `tokio_unstable` build) for runtime-task
-  introspection. The runtime is configured for it in development; production
-  builds do not enable `tokio_unstable`.
-- `cargo flamegraph` for one-off flamegraphs; works against the `bench`
-  subcommand directly.
+Profiling is opt-in and out of band. Three tools cover the common investigation
+scenarios. `samply` provides sampling CPU profiles on macOS and Linux with low
+overhead and a flamegraph UI. `tokio-console` (gated by a `tokio_unstable` build)
+provides runtime-task introspection; the runtime is configured for it in
+development, but production builds do not enable `tokio_unstable`. `cargo flamegraph`
+produces one-off flamegraphs and works against the `bench` subcommand directly.
 
 No profiler is wired into the default binary. The decision is deliberate: a
 profiler that is always-on either costs measurable overhead or hides behind a
 flag that nobody flips during an incident. Operators reach for one of the tools
-above when investigating, and the metrics above tell them which subsystem to
+above when investigating, and the metrics in §2 tell them which subsystem to
 target.
+
+---
+
+## References
+
+[1] `metrics` crate, *metrics facade*, docs.rs/metrics — counter, gauge, histogram macros and recorder API.
+[2] `metrics-exporter-prometheus`, docs.rs/metrics-exporter-prometheus — `MetricsHandle::render()` and `install_prometheus_with_listener`.
+[3] `tracing-subscriber`, docs.rs/tracing-subscriber — `EnvFilter`, `fmt::Layer`, `OnceCell`-based subscriber init.
+[4] `tracing-appender`, docs.rs/tracing-appender — `RollingFileAppender` and `WorkerGuard` lifetime.

@@ -1,0 +1,11 @@
+' Source of truth: Spast.md §11.7
+' Owner: src/spank/indexing/partition.py, bucket.py
+' Transitions: rotate on size|age|hot_budget; demote on home_budget; expire on cold_budget|retention.
+
+@startuml bucket-lifecycle
+[*] --> HOT : create
+HOT --> WARM : rotate (size | age | hot_budget)
+WARM --> COLD : demote (home_budget)
+COLD --> [*] : expire (cold_budget | retention)
+HOT --> [*] : error
+@enduml

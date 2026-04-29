@@ -1,0 +1,30 @@
+%% Source of truth: Spast.md §11.2
+%% Owners: src/spank/inputs/hec_receiver.py, src/spank/indexing/indexer.py
+%% Covers HEC ingest path with indexer ack.
+
+sequenceDiagram
+  autonumber
+  participant C as HEC Client
+  participant R as Receiver
+  participant P as RequestProcessor
+  participant Q as Indexer Queue
+  participant W as IndexWriter
+  participant B as Bucket (SQLite)
+
+  C->>R: POST /services/collector/event (body)
+  R->>R: read headers, enforce max_content_length
+  R->>P: RequestBundle(body, auth, channel)
+  P->>P: auth, gzip decode, parse, validate fields
+  P->>Q: put_nowait(Rows, ack_ids)
+  alt queue full
+    P-->>R: RequestOutcome(code=9, 503)
+    R-->>C: 503 code 9
+  else enqueued
+    P-->>R: RequestOutcome(code=0, 200)
+    R-->>C: 200 {ackId}
+  end
+  Q->>W: batch dequeue
+  W->>B: INSERT (WAL write + fsync at checkpoint)
+  W->>R: commit(ack_ids)  [monotonic watermark]
+  C->>R: POST /services/collector/ack {channel, acks:[...]}
+  R-->>C: {acks: {n: true/false}}

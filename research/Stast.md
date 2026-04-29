@@ -81,20 +81,21 @@ deny.toml
 rustfmt.toml
 crates/
   spank-core/                 # ABCs, types, errors used by everyone
-  spank-config/               # configuration parsing and validation
-  spank-storage/              # bucket, partition, SQLite specifics
-  spank-search/               # SPL planner, executor, commands
+  spank-cfg/                  # configuration parsing and validation
+  spank-store/                # bucket, partition, SQLite specifics
   spank-hec/                  # HEC receiver
   spank-api/                  # REST API server
-  spank-input-tcp/            # TCP receiver
-  spank-input-udp/            # UDP receiver
-  spank-input-file/           # File tailer
-  spank-output-forwarder/     # Forwarder
-  spank-cli/                  # binary; depends on all the above
+  spank-tcp/                  # TCP receiver
+  spank-files/                # File tailer (FileMonitor)
+  spank-shipper/              # TCP egress (TcpSender / Forwarder)
+  spank-obs/                  # tracing init, metric constants
+  spank/                      # binary; depends on all the above
 xtask/                        # cargo xtask helpers (release, lint summary)
 docs/
 tests/                        # workspace-level integration tests
 ```
+
+The layout above reflects the actual workspace as of the initial implementation pass. Crates for SPL (`spank-search`), UDP input, and additional storage backends are not yet present; they will follow as phases land per `docs/Sparst.md §12`.
 
 **Cargo.toml at the workspace root** defines `[workspace]`, `[workspace.dependencies]` (pinned, used by all member crates), `[workspace.lints]`, `[profile.release]`, `[profile.dev]`. Member crates import dependencies via `dep = { workspace = true }`. This is the single source of truth for versions.
 
@@ -543,15 +544,15 @@ A SIGHUP handler reads the file, parses, validates, and `install()`s on success.
 
 ## 12. Compatibility with Stable Rust and Edition
 
-**MSRV (minimum supported Rust version).** Document in `Cargo.toml` (`rust-version = "1.86"`). Bump only with cause; bumping is a minor-version change for a library, a patch for a binary.
+**MSRV (minimum supported Rust version).** Document in `Cargo.toml` via `rust-version`. Bump only with cause; bumping is a minor-version change for a library, a patch for a binary.
 
-**Edition.** `edition = "2024"` for new crates as of late 2024. Editions are non-breaking — old-edition crates compose with new-edition crates. Migrate via `cargo fix --edition`.
+**Edition.** The current workspace uses `edition = "2021"`. The specific MSRV value, whether to target `edition = "2024"`, and the migration plan are deferred pending a dedicated review — the version and edition choices interact with transitive dependencies and are not purely internal decisions.
 
 **`#![warn(rust_2018_idioms)]`** at every crate root: catches old-form module declarations, anonymous lifetimes, etc.
 
 **Deprecation policy.** Public APIs that change are marked `#[deprecated(since = "0.x.0", note = "use ...")]` for one minor version before removal.
 
-**Mandate.** Pin MSRV; current edition; `rust_2018_idioms` warn lint at every crate root.
+**Mandate.** Pin MSRV; document the chosen edition; `rust_2018_idioms` warn lint at every crate root.
 
 ## 13. Mandate Index
 
@@ -590,6 +591,6 @@ A compact list of every "Mandate" line above for use as a review checklist.
 | S29 | Cargo features for compile-time composition; `cargo hack` powerset. | §11 |
 | S30 | Trait-object registries for runtime composition. | §11 |
 | S31 | `arc_swap::ArcSwap<Config>` for hot reload; SIGHUP triggers; failure preserves running config. | §11 |
-| S32 | Pin MSRV; current edition; `rust_2018_idioms` warn. | §12 |
+| S32 | Pin MSRV; document edition (version/edition choice deferred for review); `rust_2018_idioms` warn. | §12 |
 
 These thirty-two mandates parallel Standards.md's M01–M33 in spirit: each is checkable, each is grep-able, each is the kind of rule that survives review without restating the rationale.

@@ -1,0 +1,26 @@
+/* Source of truth: Spast.md §11.2
+ * Owners: src/spank/indexing/*, src/spank/inputs/hec_receiver.py, src/spank/auth/*
+ * Entity relationships for persistence and auth domains.
+ */
+
+digraph entities {
+  rankdir=LR;
+  node [shape=record, fontname="Helvetica"];
+
+  Index       [label="{Index | name\lretention_days\lhome_path\lcold_path\l}"];
+  Bucket      [label="{Bucket | bucket_id\lstate [HOT|WARM|COLD]\lsize_bytes\ltime_earliest\ltime_latest\l}"];
+  Record      [label="{Record | _time\l_raw\lhost\lsource\lsourcetype\lindex\lfields (json)\l}"];
+
+  Token       [label="{Token | token_id\lhash (sha256)\lenabled\lindexes[]\lsourcetypes[]\lmax_rps\l}"];
+  Channel     [label="{Channel | channel_id\ltoken_id\llast_ack_id\l}"];
+  Ack         [label="{Ack | ack_id\lchannel_id\lcommitted (bool)\lttl\l}"];
+
+  Principal   [label="{Principal | user\lroles[]\l}"];
+  Role        [label="{Role | name\lcapabilities[]\l}"];
+
+  Index   -> Bucket   [label="1..N"];
+  Bucket  -> Record   [label="1..N"];
+  Token   -> Channel  [label="1..N"];
+  Channel -> Ack      [label="1..N"];
+  Principal -> Role   [label="N..M"];
+}

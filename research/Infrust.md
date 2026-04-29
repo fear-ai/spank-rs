@@ -383,6 +383,8 @@ sd_notify::notify(false, &[NotifyState::Status("draining inputs")])?;
 
 `tokio::signal::unix` for SIGTERM/SIGINT/SIGHUP. `CancellationToken` from `tokio_util::sync` for hierarchical cancellation. `axum_server::Handle::graceful_shutdown` with timeout for HTTP subsystems. SIGHUP convention chosen project-wide and documented. `Type=notify` systemd unit using `sd-notify`.
 
+Implementation note: the current `spank/src/main.rs` uses `tokio::signal::ctrl_c()` only, which handles SIGINT. SIGTERM and SIGHUP are not yet wired. SIGTERM is required for production operation under systemd and container runtimes; SIGHUP is required for graceful restart per §6.5. Both should be added via `tokio::signal::unix::signal` before the `Type=notify` systemd unit is deployed.
+
 ### 6.8 Alternatives
 
 - **`tokio::signal::ctrl_c()` only.** Catches SIGINT/Ctrl+C in dev; not enough for production.

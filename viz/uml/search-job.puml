@@ -1,0 +1,17 @@
+' Source of truth: Spast.md §11.2
+' Owner: src/spank/search/search.py (SearchJob)
+' Names match Splunk REST SearchJob dispatchState values.
+
+@startuml search-job
+[*] --> QUEUED
+QUEUED --> RUNNING : dispatch
+RUNNING --> FINALIZING : last_stage_done
+FINALIZING --> DONE : results_ready
+RUNNING --> CANCELLED : cancel_request
+QUEUED --> CANCELLED : cancel_request
+RUNNING --> FAILED : error
+FINALIZING --> FAILED : error
+DONE --> [*]
+FAILED --> [*]
+CANCELLED --> [*]
+@enduml

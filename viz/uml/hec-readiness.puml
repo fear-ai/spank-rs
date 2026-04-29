@@ -1,0 +1,15 @@
+' Source of truth: Spast.md §11.6
+' Owner: src/spank/inputs/hec_receiver.py
+' Tests: tests/inputs/test_hec_readiness.py
+
+@startuml hec-phase
+' HECPhase enum: STARTED / SERVING / DEGRADED / STOPPING
+[*] --> STARTED : process_start
+STARTED --> SERVING : subsystems_up
+STARTED --> DEGRADED : startup_error
+SERVING --> DEGRADED : queue_full_sustained | backend_error
+DEGRADED --> SERVING : recovered
+SERVING --> STOPPING : stop_signal
+DEGRADED --> STOPPING : stop_signal
+STOPPING --> [*]
+@enduml

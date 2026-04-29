@@ -1,0 +1,47 @@
+%% Source of truth: Spast.md §11.5
+%% Owners: src/spank/core/commander.py, src/spank/inputs/*, src/spank/indexing/*, src/spank/api/*, src/spank/outputs/*
+%% On change to any owner module, review and update this file.
+
+flowchart LR
+  subgraph Ingest
+    HECReceiver[HEC Receiver]
+    TCPReceiver[TCP Receiver]
+    UDPReceiver[UDP Receiver]
+    FileMonitor[File Monitor]
+    Parser[Parser Dispatch]
+    IndexerQueue[(Indexer Queue)]
+    IndexWriter[Index Writer]
+    Bucket[(SQLite Bucket)]
+  end
+  subgraph Control
+    APIServer[API Server]
+    Authenticator[Authenticator]
+    SearchPlanner[Search Planner]
+    SearchExecutor[Search Executor]
+  end
+  subgraph Egress
+    Sender[Sender / Forwarder]
+  end
+  Commander[Commander Collector]
+
+  HECReceiver --> Parser
+  TCPReceiver --> Parser
+  UDPReceiver --> Parser
+  FileMonitor --> Parser
+  Parser --> IndexerQueue
+  IndexerQueue --> IndexWriter
+  IndexWriter --> Bucket
+  IndexWriter -- commit_ids --> HECReceiver
+
+  APIServer --> Authenticator
+  APIServer --> SearchPlanner
+  SearchPlanner --> SearchExecutor
+  SearchExecutor --> Bucket
+
+  Commander --> HECReceiver
+  Commander --> TCPReceiver
+  Commander --> UDPReceiver
+  Commander --> FileMonitor
+  Commander --> IndexWriter
+  Commander --> APIServer
+  Commander --> Sender
