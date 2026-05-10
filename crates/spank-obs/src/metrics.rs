@@ -77,6 +77,7 @@ pub mod names {
     pub const TCP_BYTES_OUT_TOTAL: &str = "spank.tcp.bytes_out_total";
     pub const TCP_CONNECTIONS_CURRENT: &str = "spank.tcp.connections_current";
     pub const TCP_SYSCALL_ERRORS_TOTAL: &str = "spank.tcp.syscall_errors_total";
+    pub const TCP_LINES_DROPPED_TOTAL: &str = "spank.tcp.lines_dropped_total";
 
     pub const STORE_INSERTS_TOTAL: &str = "spank.store.inserts_total";
     pub const STORE_INSERT_DURATION: &str = "spank.store.insert_duration_seconds";

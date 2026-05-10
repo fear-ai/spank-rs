@@ -16,5 +16,13 @@ tracing = { workspace = true }
 parking_lot = { workspace = true }
 metrics = { workspace = true }
 
+[features]
+# Enable the DuckDB backend. Requires the `duckdb` crate; does not
+# pull it into the default build.
+duckdb = []
+# Enable the Postgres backend. Requires `tokio-postgres`; does not
+# pull it into the default build.
+postgres = []
+
 [dev-dependencies]
 tempfile = "3.10"

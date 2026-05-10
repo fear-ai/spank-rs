@@ -47,7 +47,8 @@ pub async fn run_connection(
         peer = %peer,
         conn_id = conn_id
     );
-    let _ = out.send(ConnEvent::Opened { handle: handle.clone() }).await;
+    // Opened event is best-effort; consumer closure is not a reason to abort.
+    let _ = out.try_send(ConnEvent::Opened { handle: handle.clone() });
 
     if let Err(e) = stream.set_nodelay(true) {
         let err = SpankError::io("set_nodelay", peer.to_string(), e);
@@ -100,13 +101,28 @@ pub async fn run_connection(
                                 conn_id = conn_id,
                                 bytes = line.len()
                             );
-                            if out.send(ConnEvent::Line {
+                            match out.try_send(ConnEvent::Line {
                                 handle: handle.clone(),
                                 line,
-                            }).await.is_err() {
-                                reason = "consumer_closed".into();
-                                let _ = stream.shutdown().await;
-                                break;
+                            }) {
+                                Ok(()) => {}
+                                Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                                    metrics::counter!(
+                                        spank_obs::metrics::names::TCP_LINES_DROPPED_TOTAL,
+                                        "peer" => peer.to_string()
+                                    ).increment(1);
+                                    error_event!(
+                                        error = "consumer channel full; line dropped",
+                                        recovery = "backpressure",
+                                        peer = %peer,
+                                        conn_id = conn_id
+                                    );
+                                }
+                                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                    reason = "consumer_closed".into();
+                                    let _ = stream.shutdown().await;
+                                    break;
+                                }
                             }
                         }
                     }
@@ -132,12 +148,7 @@ pub async fn run_connection(
         conn_id = conn_id,
         reason = %reason
     );
-    let _ = out
-        .send(ConnEvent::Closed {
-            handle,
-            reason,
-        })
-        .await;
+    let _ = out.try_send(ConnEvent::Closed { handle, reason });
     Ok(())
 }
 

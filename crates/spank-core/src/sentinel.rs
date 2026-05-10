@@ -1,6 +1,10 @@
-//! Sentinel — end/checkpoint marker enqueued at source termination.
+//! Sentinel — end marker enqueued at source termination.
 //!
 //! See `docs/Sparst.md` §8.4 for the design.
+//!
+//! `SentinelKind::Checkpoint` was removed (Plan.md SENT-CHKPT1). Re-add
+//! when a mid-stream checkpoint use case (e.g. periodic WAL flush
+//! confirmation) is concretely designed.
 
 use serde::{Deserialize, Serialize};
 
@@ -9,12 +13,9 @@ use serde::{Deserialize, Serialize};
 pub enum SentinelKind {
     /// Source finished; flush buffers and signal `Drain`.
     End,
-    /// Mid-stream checkpoint; flush buffers and signal `Drain`, but
-    /// the source continues. Reserved — not produced or consumed yet.
-    Checkpoint,
 }
 
-/// End/checkpoint marker carried through ingest channels.
+/// End marker carried through ingest channels.
 ///
 /// On receipt, the indexing loop flushes buffers tagged with this
 /// `tag` and signals the matching [`crate::Drain`] entry.
@@ -30,14 +31,6 @@ impl Sentinel {
     pub fn end(tag: impl Into<String>) -> Self {
         Self {
             kind: SentinelKind::End,
-            tag: tag.into(),
-        }
-    }
-
-    #[must_use]
-    pub fn checkpoint(tag: impl Into<String>) -> Self {
-        Self {
-            kind: SentinelKind::Checkpoint,
             tag: tag.into(),
         }
     }

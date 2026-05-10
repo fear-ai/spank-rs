@@ -13,18 +13,18 @@ use tokio::sync::Notify;
 
 #[derive(Default)]
 struct Inner {
-    /// Tag → notifier. The notifier is permanent; multiple waiters
-    /// share the same `Notify` and all are released by `notify_waiters`.
-    /// `signaled` carries the latched fact that the tag has fired so
-    /// late waiters return immediately.
+    /// Tag → notifier. Permanent once created; shared across all waiters
+    /// for the same tag and released by `notify_waiters`.
     notifiers: HashMap<String, Arc<Notify>>,
+    /// Latched set of tags that have already fired. A waiter that arrives
+    /// after the signal still completes immediately.
     signaled: HashMap<String, ()>,
 }
 
 /// Wait-side handle for source completion.
 ///
-/// Cloning this handle shares state. There is one `Drain` per
-/// indexer; producers and waiters use the same instance.
+/// Cloning shares state. One `Drain` per indexer; producers and
+/// waiters use the same instance.
 #[derive(Clone, Default)]
 pub struct Drain {
     inner: Arc<Mutex<Inner>>,
@@ -49,23 +49,40 @@ impl Drain {
     /// Block until `tag` is signaled or `timeout` elapses.
     ///
     /// Returns `true` if the tag fired, `false` on timeout.
+    ///
+    /// # Race-free protocol
+    ///
+    /// Uses `Notified::enable()` to subscribe to the notifier before
+    /// checking the latch. `enable()` places the future in the notifier's
+    /// wait set immediately — no poll required — so any `notify_waiters()`
+    /// call that occurs after `enable()` will wake this future regardless
+    /// of when it is first polled. The latch check after `enable()` catches
+    /// signals that arrived before `enable()` ran; such signals wrote to
+    /// `signaled` before calling `notify_waiters()`, so the check always
+    /// observes them.
     pub async fn wait(&self, tag: &str, timeout: Option<Duration>) -> bool {
-        // Fast-path: already signaled.
+        // Fast-path: already signaled before we even start.
         {
             let inner = self.inner.lock();
             if inner.signaled.contains_key(tag) {
                 return true;
             }
         }
+
         let n = self.notifier(tag);
-        let notified = n.notified();
-        // Re-check after subscribing to avoid lost wake-ups.
+        let mut notified = std::pin::pin!(n.notified());
+        // Subscribe to the notifier before checking the latch. Any
+        // notify_waiters() call after this point will reach this future.
+        notified.as_mut().enable();
+
+        // Check whether signal() ran between notifier() and enable().
         {
             let inner = self.inner.lock();
             if inner.signaled.contains_key(tag) {
                 return true;
             }
         }
+
         match timeout {
             Some(d) => tokio::time::timeout(d, notified).await.is_ok(),
             None => {

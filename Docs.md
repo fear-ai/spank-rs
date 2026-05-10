@@ -96,6 +96,7 @@ spank-rs/
     Errors.md               (reference; error taxonomy, recovery, shutdown)
     Network.md              (reference; network library stack)
     Sparst.md               (foundation; fresh implementation proposal for the Rust port)
+    ExpRust.md              (research; Rust syntax and codebase study transcript)
   research/
     Stast.md                (research; Rust coding standards survey)
     Pyst.md                 (research; Python-to-Rust comparison and gap analysis)
@@ -129,6 +130,8 @@ Each entry below names what the document owns, who reads it, and what it does *n
 **`research/Infrust.md`** — the Rust infrastructure counterpart to `spank-py/Infra.md`: deployment topology, configuration management, packaging, and operational considerations in the Rust port.
 
 **`research/Indust.md`** — storage backend analysis (SQLite, DuckDB, Parquet, S3), the missing Partition layer design, Splunk on-disk formats, SPL functional requirements by tier, and a curated industry and technology reading list.
+
+**`docs/ExpRust.md`** — study transcript from a session exploring `main.rs` structure (`Cli`, `Cmd`), Rust syntax patterns, and design decisions in the binary crate. Belongs in `docs/` rather than `research/` because it is tied to the current codebase, not to external analysis. Does not receive implementation tasks or rationale that belongs in `docs/Network.md`, `docs/Errors.md`, or `docs/Observability.md`.
 
 **`crates/`** — source code, governed by `Procesp.md Part B` (coding standards), not by this map.
 

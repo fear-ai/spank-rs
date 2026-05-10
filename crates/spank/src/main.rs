@@ -52,6 +52,15 @@ fn main() -> anyhow::Result<()> {
     init_tracing(&cfg.tracing).context("init tracing")?;
     let metrics = Arc::new(install_prometheus().map_err(anyhow::Error::msg)?);
 
+    // Install panic hook after the Prometheus recorder is registered so that
+    // the counter increment has a live recorder to write to. Panics between
+    // process start and this line are handled by the default hook only.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        metrics::counter!(spank_obs::metrics::names::PANICS_TOTAL).increment(1);
+        default_hook(info);
+    }));
+
     let runtime = build_runtime(&cfg.runtime)?;
 
     runtime.block_on(async move {
@@ -83,8 +92,21 @@ async fn serve(
 ) -> anyhow::Result<()> {
     let lifecycle = Lifecycle::root();
 
+    // Collect known index names from token allowed_indexes for the indexes endpoint.
+    let known_indexes = {
+        let mut names: Vec<String> = cfg
+            .hec
+            .tokens
+            .iter()
+            .flat_map(|t| t.allowed_indexes.iter().cloned())
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    };
+
     // API state.
-    let api_state = spank_api::ApiState::new(metrics.clone(), "shank");
+    let api_state = spank_api::ApiState::new(metrics.clone(), "shank", known_indexes);
 
     // HEC wiring (channel, sender, consumer, routes).
     let drain = spank_core::Drain::new();
@@ -125,8 +147,20 @@ async fn serve(
         None
     };
 
-    // Mark phase SERVING once subsystems are constructed.
-    api_state.set_phase(spank_core::HecPhase::SERVING);
+    // Mark phase SERVING once subsystems are constructed. The transition
+    // from STARTED to SERVING is the one permitted path; enforce it through
+    // can_transition_to so that future callers cannot bypass the state machine.
+    let current = api_state.current_phase();
+    let next = spank_core::HecPhase::SERVING;
+    if current.can_transition_to(next) {
+        api_state.set_phase(next);
+    } else {
+        return Err(anyhow::anyhow!(
+            "illegal phase transition {:?} -> {:?}; aborting startup",
+            current,
+            next
+        ));
+    }
 
     // Build router: API + HEC.
     let router = spank_api::router::build(api_state.clone())
@@ -157,7 +191,12 @@ async fn serve(
     let _ = api_join.await?;
     lifecycle.shutdown();
 
-    // Drain.
+    // Drain the HEC consumer. Joining the task handle provides the same
+    // ordering guarantee as drain.wait() for the current single-consumer
+    // topology: the task exits only after processing all queued items.
+    // Per-tag drain.wait() is required when the HEC ACK endpoint lands
+    // (Plan.md OBS-DRAIN1): at that point a tag registry must be maintained
+    // and each active tag waited before the response is sent.
     let shutdown_budget = std::time::Duration::from_secs(cfg.runtime.shutdown_seconds);
     let _ = tokio::time::timeout(shutdown_budget, consumer).await;
     if let Some((listen, consume)) = tcp_handle {

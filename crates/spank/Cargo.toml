@@ -19,6 +19,7 @@ spank-files = { path = "../spank-files" }
 spank-shipper = { path = "../spank-shipper" }
 spank-store = { path = "../spank-store" }
 spank-tcp = { path = "../spank-tcp" }
+metrics = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }

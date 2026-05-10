@@ -182,10 +182,13 @@ impl BucketWriter for SqliteWriter {
         let conn = guard.as_mut().ok_or_else(|| SpankError::Storage {
             message: "writer closed".into(),
         })?;
+        let t0 = std::time::Instant::now();
         conn.execute_batch("COMMIT")
             .map_err(|e| SpankError::Storage {
                 message: format!("commit: {e}"),
             })?;
+        metrics::histogram!(spank_obs::metrics::names::STORE_INSERT_DURATION)
+            .record(t0.elapsed().as_secs_f64());
         self.in_txn = false;
         Ok(())
     }

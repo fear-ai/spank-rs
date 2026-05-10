@@ -18,6 +18,10 @@ pub struct ApiState {
     pub phase: Arc<ArcSwap<HecPhase>>,
     pub metrics: Arc<MetricsHandle>,
     pub build: BuildInfo,
+    /// Deduplicated list of known index names, derived from
+    /// `HecConfig::tokens[*].allowed_indexes` at startup.
+    /// Used by `GET /services/data/indexes`.
+    pub known_indexes: Arc<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -28,7 +32,11 @@ pub struct BuildInfo {
 
 impl ApiState {
     #[must_use]
-    pub fn new(metrics: Arc<MetricsHandle>, bundle: &'static str) -> Self {
+    pub fn new(
+        metrics: Arc<MetricsHandle>,
+        bundle: &'static str,
+        known_indexes: Vec<String>,
+    ) -> Self {
         Self {
             phase: Arc::new(ArcSwap::from_pointee(HecPhase::STARTED)),
             metrics,
@@ -36,6 +44,7 @@ impl ApiState {
                 version: env!("CARGO_PKG_VERSION"),
                 bundle,
             },
+            known_indexes: Arc::new(known_indexes),
         }
     }
 

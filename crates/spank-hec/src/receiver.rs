@@ -99,16 +99,20 @@ async fn post_raw(
 
 async fn get_health(State(s): State<Arc<HecState>>) -> impl IntoResponse {
     let phase = **s.phase.load();
-    let status = match phase {
-        HecPhase::SERVING => StatusCode::OK,
-        _ => StatusCode::SERVICE_UNAVAILABLE,
+    // DEGRADED returns 200 — the node still admits work and must stay in
+    // rotation. Splunk's own degraded indexers respond 200 while reporting
+    // reduced capacity. STARTED and STOPPING return 503.
+    let (status, text, code) = match phase {
+        HecPhase::SERVING => (StatusCode::OK, "HEC is available", 0),
+        HecPhase::DEGRADED => (StatusCode::OK, "HEC is degraded", 0),
+        _ => (StatusCode::SERVICE_UNAVAILABLE, "HEC is unavailable", 9),
     };
     (
         status,
         Json(json!({
-            "text": "HEC is running",
+            "text": text,
             "phase": format!("{:?}", phase),
-            "code": 0,
+            "code": code,
         })),
     )
 }
@@ -184,14 +188,19 @@ async fn handle(
     };
 
     if rows.is_empty() {
-        let o = RequestOutcome::invalid_data("no events in body");
+        let o = RequestOutcome::no_data();
         return respond(o);
     }
 
-    // Tag — channel header if present, else token id.
+    // Tag — channel header if present and non-empty, else token id.
+    // Empty string after trimming is treated as absent: a header with no
+    // content is not a useful channel identifier and must not be used as
+    // a routing key. See docs/HECst.md §3.3.
     let tag = headers
         .get("x-splunk-request-channel")
         .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
         .map(str::to_owned)
         .unwrap_or(principal.name);
 

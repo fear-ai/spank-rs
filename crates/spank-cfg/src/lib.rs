@@ -203,6 +203,10 @@ impl Default for StoreConfig {
 #[serde(rename_all = "lowercase")]
 pub enum StoreBackend {
     Sqlite,
+    /// DuckDB backend. Requires the `duckdb` feature on `spank-store`.
+    DuckDb,
+    /// Postgres backend. Requires the `postgres` feature on `spank-store`.
+    Postgres,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -271,26 +275,99 @@ fn validate(cfg: &SpankConfig) -> Result<(), CfgError> {
             "hec.max_content_length must be > 0".into(),
         ));
     }
+    for t in &cfg.hec.tokens {
+        if t.value.is_empty() {
+            return Err(CfgError::Validation(format!(
+                "hec.tokens[id={}].value must not be empty",
+                t.id
+            )));
+        }
+    }
+    if let Some(bind) = &cfg.hec.bind {
+        bind.parse::<std::net::SocketAddr>().map_err(|e| {
+            CfgError::Validation(format!("hec.bind is not a valid socket address: {e}"))
+        })?;
+    }
+    cfg.api
+        .bind
+        .parse::<std::net::SocketAddr>()
+        .map_err(|e| CfgError::Validation(format!("api.bind is not a valid socket address: {e}")))?;
+    if let Some(bind) = &cfg.tcp.bind {
+        bind.parse::<std::net::SocketAddr>().map_err(|e| {
+            CfgError::Validation(format!("tcp.bind is not a valid socket address: {e}"))
+        })?;
+    }
+    for dest in &cfg.shipper.destinations {
+        dest.addr.parse::<std::net::SocketAddr>().map_err(|e| {
+            CfgError::Validation(format!(
+                "shipper.destinations[name={}].addr is not a valid socket address: {e}",
+                dest.name
+            ))
+        })?;
+    }
+    if cfg.runtime.shutdown_seconds == 0 {
+        return Err(CfgError::Validation(
+            "runtime.shutdown_seconds must be > 0".into(),
+        ));
+    }
+    if let Some(n) = cfg.runtime.worker_threads {
+        if n == 0 {
+            return Err(CfgError::Validation(
+                "runtime.worker_threads must be > 0 if set".into(),
+            ));
+        }
+    }
+    for (i, src) in cfg.files.sources.iter().enumerate() {
+        if src.workers == 0 {
+            return Err(CfgError::Validation(format!(
+                "files.sources[{i}].workers must be >= 1"
+            )));
+        }
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
-    // Tests share process-wide env, so they are combined to run
-    // deterministically in a single thread of execution.
     #[test]
+    #[serial]
     fn defaults_and_validation() {
-        // Defaults load.
+        // Defaults load cleanly.
         let cfg = load(None).unwrap();
         assert_eq!(cfg.api.bind, "127.0.0.1:8089");
         assert_eq!(cfg.hec.queue_depth, 1024);
 
-        // Validation rejects zero queue depth via env override.
+        // Zero queue_depth rejected.
         std::env::set_var("SP_HEC__QUEUE_DEPTH", "0");
         let res = load(None);
         std::env::remove_var("SP_HEC__QUEUE_DEPTH");
-        assert!(matches!(res, Err(CfgError::Validation(_))));
+        assert!(matches!(res, Err(CfgError::Validation(_))), "queue_depth=0 should fail");
+
+        // Zero max_content_length rejected.
+        std::env::set_var("SP_HEC__MAX_CONTENT_LENGTH", "0");
+        let res = load(None);
+        std::env::remove_var("SP_HEC__MAX_CONTENT_LENGTH");
+        assert!(matches!(res, Err(CfgError::Validation(_))), "max_content_length=0 should fail");
+
+        // Zero shutdown_seconds rejected.
+        std::env::set_var("SP_RUNTIME__SHUTDOWN_SECONDS", "0");
+        let res = load(None);
+        std::env::remove_var("SP_RUNTIME__SHUTDOWN_SECONDS");
+        assert!(matches!(res, Err(CfgError::Validation(_))), "shutdown_seconds=0 should fail");
+
+        // Zero worker_threads rejected.
+        std::env::set_var("SP_RUNTIME__WORKER_THREADS", "0");
+        let res = load(None);
+        std::env::remove_var("SP_RUNTIME__WORKER_THREADS");
+        assert!(matches!(res, Err(CfgError::Validation(_))), "worker_threads=0 should fail");
+
+        // Invalid api.bind rejected.
+        std::env::set_var("SP_API__BIND", "not-an-address");
+        let res = load(None);
+        std::env::remove_var("SP_API__BIND");
+        assert!(matches!(res, Err(CfgError::Validation(_))), "bad api.bind should fail");
     }
 }

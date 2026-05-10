@@ -58,4 +58,34 @@ impl RequestOutcome {
             code: 6,
         }
     }
+
+    /// Splunk code 5 — no data in the request body.
+    #[must_use]
+    pub fn no_data() -> Self {
+        Self {
+            http_status: 400,
+            text: "No data".into(),
+            code: 5,
+        }
+    }
+
+    /// Splunk code 12 — `event` field absent from the envelope.
+    #[must_use]
+    pub fn event_field_required() -> Self {
+        Self {
+            http_status: 400,
+            text: "Event field is required".into(),
+            code: 12,
+        }
+    }
+
+    /// Splunk code 13 — `event` field is null or empty string.
+    #[must_use]
+    pub fn event_field_blank() -> Self {
+        Self {
+            http_status: 400,
+            text: "Event field cannot be blank".into(),
+            code: 13,
+        }
+    }
 }
