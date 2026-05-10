@@ -54,6 +54,9 @@ clap = { version = "4.5", features = ["derive", "env"] }
 # Storage
 rusqlite = { version = "0.32", features = ["bundled"] }
 
+# Testing
+serial_test = "3.0"
+
 # Utility
 bytes = "1.7"
 flate2 = "1.0"
