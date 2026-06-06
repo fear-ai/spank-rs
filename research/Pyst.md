@@ -14,6 +14,8 @@ This document consolidates Python-language and Rust-language material relevant t
 4. Slowloris and Timeout Defense
 5. Rust TLS
 6. tokio at Scale
+   - 6.1 Thread and Syscall Model: Rust vs Python
+   - 6.2 Input Path Comparison: Network, File, Parse, Index, Write
 7. Rust Regex
 8. ANTLR4 Trajectory and Spank's Grammar
 9. Parser Library Choices in Rust
@@ -38,6 +40,12 @@ Memory per record is high. A flat 100-byte log line becomes kilobytes of Python 
 Regex GIL behavior is pattern- and input-dependent and not documented as a public contract. CPython 3.11+ releases the GIL around the inner match loop for compiled patterns on large inputs; earlier versions hold it throughout. The safe assumption for design is "regex holds the GIL." The third-party `regex` package has distinct GIL behavior and is sometimes adopted for that reason alone.
 
 Python stdlib regex source: `Modules/_sre/sre.c` and supporting files in CPython; wrapper at `Lib/re/__init__.py`, parsing and compilation at `Lib/re/_parser.py` and `Lib/re/_compiler.py`. Third-party `regex` package source at `github.com/mrabarnett/mrab-regex`.
+
+**Thread and syscall shape for ingest.** Python threads are useful at the edges where they block in the kernel (`accept`, `recv`, `read`, `write`, `fsync`) or inside C extensions that explicitly release the GIL. They are not useful for scaling pure-Python parsing, SPL evaluation, object construction, or Python-level indexing across cores. The practical high-rate Python design is therefore either (a) one event loop with C-extension hot paths (`uvloop`, `orjson`, database C APIs), (b) pre-fork or multiprocessing to get multiple interpreters, or (c) a native sidecar for the CPU-heavy portions. Threading alone does not turn a Python log parser into a multi-core parser.
+
+**Network input in Python.** A production async stack such as uvicorn/uvloop uses the same kernel readiness family as Rust — `epoll` on Linux, `kqueue` on macOS/BSD — but the wakeup resumes Python callbacks and Python coroutine frames. The syscall path is still NIC DMA → kernel socket buffer → `recv`/TLS buffer → user buffer. The difference is what happens after bytes reach user space: header parsing may be C (`httptools`), JSON may be C/Rust (`orjson`), but routing, field mapping, queueing, and custom parsing often re-enter Python and the GIL.
+
+**File input in Python.** Regular files are not readiness-driven in the same way sockets are. `asyncio` file I/O is usually thread-pool backed; `aiofiles` is explicitly a thread-pool wrapper. Native file watching comes from third-party bindings such as watchdog, which uses `inotify` on Linux and FSEvents/kqueue-style backends on macOS. A Python tailer that polls with `stat` plus `readline` has the same syscalls as a Rust poller, but each line typically becomes Python `str`/`dict` objects before it is indexed or written.
 
 ## 2. Python Production HTTP Stack
 
@@ -132,6 +140,31 @@ For thousands of concurrent HTTPS connections on tokio (1.40+):
 - `SO_REUSEPORT` via `socket2` for multiple accept loops on multiple cores if needed.
 
 Scheduling-latency pathology at 10k connections: none on recent tokio. Known pain point: long synchronous work inside async tasks starving the scheduler. Mitigation: `tokio::task::spawn_blocking` or `rayon` for heavy JSON parsing on large batches.
+
+### 6.1 Thread and Syscall Model: Rust vs Python
+
+Both languages ultimately call the same kernel. The difference is where scheduling, parsing, allocation, and cross-core execution happen after each syscall returns.
+
+| Layer | Python shape | Rust/tokio shape | Practical consequence for Spank |
+|---|---|---|---|
+| Network readiness | `asyncio`/uvloop over `epoll` or `kqueue`; callbacks resume under the interpreter | `mio` over `epoll` or `kqueue`; tasks resume on tokio worker threads | Same kernel event source; Rust avoids the GIL after readiness wakeup. |
+| Socket read | `recv` into Python/C extension buffer; TLS and HTTP may be C-backed | nonblocking socket read into `bytes::BytesMut` or hyper body buffers | Copies are similar; Rust can keep buffers typed and reusable through parse/write. |
+| File read | blocking `read` directly or via thread-pool wrapper; file watching via watchdog/inotify/FSEvents | `tokio::fs` uses blocking pool for regular files; file watching via `notify`; current spank-rs tailer polls `read` + `stat` | Neither language gets magic async regular-file readiness; design is polling, watch API, or blocking pool. |
+| CPU parse | Python bytecode serialized by GIL unless C extension owns the hot loop | native Rust code across worker threads; heavy work can move to `rayon`/`spawn_blocking` | Rust scales custom parsers, tokenizers, and index builders across cores without multiprocessing. |
+| Object allocation | per-event `str`/`dict`/`list` object graph; refcount + cycle GC | structs, enums, `Bytes`, arenas, `Vec`, owned or borrowed slices | Rust can keep per-record expansion much lower and more predictable. |
+| Database write | Python driver calls C DB API; Python still builds/binds row objects; SQLite remains single-writer per DB | `rusqlite` direct FFI from Rust; dedicated writer owns transaction and prepared statement | Rust removes Python object/binding overhead but not SQLite's single-writer rule. |
+
+Tokio worker threads are OS threads. Tokio tasks are user-space scheduled futures multiplexed onto those threads. A task switch avoids a kernel context switch, but it is cooperative: a task doing CPU work without `.await` can starve peers. Python threads are preempted by the OS, but only one CPython thread executes Python bytecode at a time; Python coroutines are also cooperative. For this workload the real split is not "async vs threads" but "how much hot work happens in native code without a GIL."
+
+### 6.2 Input Path Comparison: Network, File, Parse, Index, Write
+
+**Network HEC path.** Python and Rust both pay NIC DMA, kernel socket buffering, TLS decrypt, HTTP framing, and a copy into user memory. Rust's advantage begins after the body is available: the parser can operate on `Bytes`/`&[u8]`, route events through bounded channels without Python object graphs, and keep backpressure in typed queues. Python can narrow the gap with uvloop + httptools + orjson, but custom field mapping and index preparation typically return to Python bytecode.
+
+**File ingest path.** The syscalls are mundane in both languages: `open`, `read`, `lseek`, `stat`/`fstatat`, `close`, plus `inotify`/FSEvents if using a watcher. The current Rust `FileMonitor` deliberately uses polling: read to EOF, sleep 200 ms, check inode via metadata, reopen on rotation. That is portable and simple, not lower-syscall than Python. Rust's advantage is downstream: line framing with `memchr`, parsing into borrowed slices or compact structs, and passing stable buffers to writers.
+
+**Parsing and indexing.** Python's fastest path uses C/Rust extensions (`orjson`, `regex`, `pyarrow`, database drivers), but a Splunk-like parser/indexer has substantial custom logic. In Rust, `regex`, `memchr`, `aho-corasick`, `nom`, `serde_json`/`simd-json`, and `tantivy` are native libraries with no interpreter lock. Index construction can batch tokens into per-bucket builders, use `Vec`/arena storage, and parallelize across buckets. That is the main systems reason to prefer Rust for the search/index side.
+
+**Database writes.** SQLite and DuckDB are native engines in both languages. The difference is how rows reach them. Python typically constructs Python values, hands them through DB-API bindings, and relies on `executemany` inside a transaction. Rust can keep a dedicated writer thread with a prepared statement, receive batches over a channel, bind from existing buffers, and avoid `await` between bind and `sqlite3_step`. The win is lower per-row overhead and tighter lifetime control, not a different SQLite kernel primitive. SQLite still serializes writes per database file; Spank's bucket-per-file model is what creates parallelism.
 
 ## 7. Rust Regex
 
@@ -278,6 +311,19 @@ Vector 0.55.0, Rust toolchain 1.92, edition 2024. Workspace has 31 internal crat
 - 31 internal crates — Vector is a collection of libraries glued together by the main crate, not a single program.
 - jemalloc and rkyv are explicit allocation-cost choices.
 
+**Regex/library choice in Vector and Spank.** Vector's parser choices are a useful guardrail: LALRPOP for VRL, nom for framed protocols, regex for unstructured matching, and hand-written scanners where the grammar is tiny. Spank should follow the same tiering rather than choose one parser technology everywhere. For SPL `rex` and user-supplied extraction, the default should be Rust `regex` because it is linear-time and ReDoS-resistant; fixed keyword prefilters should use `aho-corasick`; line splitting should use `memchr`; SPL grammar should use LALRPOP or a hand-written Pratt/parser-combinator layer rather than regex. If a future compatibility tier requires PCRE lookaround/backreferences, isolate that behind an optional slower engine and never put it on the default untrusted ingest path.
+
+**Could Spank be better than Vector?** Not as a general observability router. Vector is mature, broad, and battle-tested across many sources and sinks. A Spank implementation can only be "better" by refusing Vector's scope and specializing:
+
+- **Narrower protocol surface:** first-class Splunk-compatible HEC/search semantics instead of a universal pipeline abstraction.
+- **Modern smaller stack:** axum 0.8 + hyper 1.x + rustls 0.23, avoiding Vector's current coexistence of warp, axum 0.6, hyper 0.14, `http` 0.2/1.0, and two reqwest versions.
+- **Search-aware storage:** write directly into hot SQLite buckets, warm Parquet, and a Tantivy/Bloom side index rather than treating local files as just another sink.
+- **Stronger local durability semantics:** define HEC ack as "committed to Spank's bucket/WAL" rather than "accepted into an internal pipeline buffer" when the durable mode is enabled.
+- **Lower dependency and operator surface:** fewer connectors, fewer feature gates, smaller binary, clearer threat model, and less enterprise-PKI/Kubernetes/multi-cloud baggage.
+- **Tighter data model:** events can be normalized once for SPL search instead of repeatedly transformed through a generic event pipeline.
+
+The honest comparison: use Vector when the requirement is broad routing, transformations, and sinks. Build Spank when the requirement is a Splunk-shaped local index/search engine with a deliberately small ingestion surface. Vector is the reference implementation to learn from, not the benchmark to out-feature.
+
 For Spank's HEC endpoint specifically, Vector's `sources/splunk_hec.rs` is the canonical prior-art reference — on warp + hyper 0.14 in 0.55.0, not the stack a new project would choose in 2026, but protocol handling and ack-tracking logic is directly relevant.
 
 **Subset Spank would plausibly start with for analogous core work:** tokio, hyper + axum or hyper direct, rustls, serde + serde_json, regex, nom for specialized parsers, tracing, metrics, rdkafka if Kafka is in scope, AWS SDK crates if S3 is in scope. Twelve to fifteen direct dependencies for a feature-comparable core, plus integration-specific per source and sink. Much smaller than Vector's 1,233.
@@ -290,7 +336,7 @@ Python advantages for Spank: development velocity, large ecosystem for log parsi
 
 Python disadvantages: the GIL forecloses pure-Python compute parallelism; memory per record is high; GC behavior under sustained high-rate ingestion is nontrivial; stdlib HTTP is not production-grade; the real stack (gunicorn/uvicorn + FastAPI/Starlette + uvloop + ssl + orjson) is not smaller than Rust's, just framework-integrated.
 
-Rust advantages: no GIL; linear-time regex with no ReDoS; memory-safe production HTTP via axum + hyper + rustls with published deployments at comparable or larger scale than Spank targets; deterministic destruction; per-record memory an order of magnitude lower; explicit layering makes each component substitutable.
+Rust advantages: no GIL; linear-time regex with no ReDoS; memory-safe production HTTP via axum + hyper + rustls with published deployments at comparable or larger scale than Spank targets; deterministic destruction; per-record memory an order of magnitude lower; explicit layering makes each component substitutable. On the concrete ingest path, Rust does not make `recv`, `read`, or `fsync` cheaper than Python — the kernel is the same — but it makes the work between syscalls cheaper and parallelizable: parse, normalize, tokenize, batch, bind, index.
 
 Rust disadvantages: steeper learning curve; explicit layer composition visible at development time; ANTLR4 Rust target is dormant (hand-port the grammar or accept the fork's stale-runtime risk); integration ecosystem for less common log-source types is thinner than Python's.
 

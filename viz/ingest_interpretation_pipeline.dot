@@ -1,0 +1,92 @@
+digraph ingest_interpretation_pipeline {
+  rankdir=LR;
+  graph [
+    label="Spank Raw Ingest, Interpretation, and Search-Index Pipeline",
+    labelloc=t,
+    fontsize=20,
+    fontname="Helvetica"
+  ];
+  node [
+    shape=box,
+    style="rounded,filled",
+    fillcolor="#f7f7f7",
+    color="#444444",
+    fontname="Helvetica",
+    fontsize=12
+  ];
+  edge [
+    color="#444444",
+    fontname="Helvetica",
+    fontsize=10
+  ];
+
+  subgraph cluster_inputs {
+    label="Inputs";
+    color="#b7c7e8";
+    fillcolor="#eef4ff";
+    style="rounded,filled";
+    file_tail [label="File tail\nsyslog/auth/apache"];
+    hec [label="HEC batch\nJSON/raw"];
+  }
+
+  breaker [label="Event breaker\nline/multiline/framing"];
+  staging [label="Bounded staging\nbytes/events/age limits", fillcolor="#fff7df"];
+
+  subgraph cluster_raw {
+    label="Raw Durable Layer";
+    color="#b9e2c1";
+    fillcolor="#effaf1";
+    style="rounded,filled";
+    raw_chunks [label="Raw chunk writer\ncodec + crc32c"];
+    raw_manifest [label="Raw manifest commit\nraw-durable watermark"];
+    raw_events [label="raw_events metadata\noffset + length + ids"];
+  }
+
+  interp_queue [label="Interpretation queue\nlag tracked", fillcolor="#fff7df"];
+
+  subgraph cluster_workers {
+    label="Interpretation / Index Workers";
+    color="#efc0c0";
+    fillcolor="#fff1f1";
+    style="rounded,filled";
+    parsers [label="Parser/analyzer workers\nsourcetype + version"];
+    columns [label="Typed column builders\nip/u16/i64/dicts"];
+    tokens [label="Token/posting builders\nfield-aware positions"];
+    enrich [label="Optional enrichment\nurl decode/geoip/sigma"];
+  }
+
+  subgraph cluster_search {
+    label="Search-Visible Layer";
+    color="#d4c4ef";
+    fillcolor="#f7f1ff";
+    style="rounded,filled";
+    segments [label="Per-field segments\ncolumns + postings"];
+    capabilities [label="Capability metadata\nfields/operators/indexes"];
+    search_manifest [label="Search manifest publish\nsearch-visible watermark"];
+  }
+
+  file_tail -> breaker;
+  hec -> breaker;
+  breaker -> staging;
+  staging -> raw_chunks;
+  raw_chunks -> raw_manifest;
+  raw_manifest -> raw_events;
+  raw_manifest -> interp_queue;
+  interp_queue -> parsers;
+  raw_events -> parsers [label="raw refs"];
+  parsers -> columns;
+  parsers -> tokens;
+  parsers -> enrich;
+  enrich -> columns;
+  enrich -> tokens;
+  columns -> segments;
+  tokens -> segments;
+  segments -> search_manifest;
+  capabilities -> search_manifest;
+
+  raw_manifest -> search_manifest [
+    label="two watermarks:\nraw-durable vs search-visible",
+    style=dashed,
+    color="#777777"
+  ];
+}

@@ -2,27 +2,29 @@
 
 `Focus: foundation` — defines the design target for the Rust port: what to preserve from spank-py, what to restate, what to replace, the persistence contract, the configuration surface, the SPL tier plan, the composability model, the terminology map, and the phased evolution. The audience is any developer or model session shaping the implementation plan. Does not receive implementation status (that belongs in `Plan.md`) or subsystem details that belong in the Reference docs under `docs/`.
 
-## Scope and Intent
+Sparst proposes a new implementation pass for Spank. It absorbs the derivational frame from `Spanker.md`, the language and library comparison from `research/Pyst.md`, the architectural and operational state from `Architecture.md`, `Infra.md`, `Codebase.md`, `HEC.md`, `Standards.md`, `Splunk.md`, and the positioning from `Product.md`. It names what to keep verbatim, what to restate differently, and what to replace. It is not a rewrite plan in the sense of "throw it out." It is a recomposition plan: preserve the wins, sharpen the contracts, close the Splunk-interop gaps, and give the code and the documents a common spine for verification. Priorities, stated once and referenced throughout: Splunk alignment (functional decomposition, data flows, persistence, configuration, SPL processing); shipper interoperability; ready mix-and-match of components; consistent user-facing terminology; test and verification tooling that mechanically enforces the standards; branded functionality and performance bundles; artifacts (diagrams, state machines, entity relationships) co-maintained with code through phases that combine specification, documentation, implementation, and verification.
 
-Sparst proposes a new implementation pass for Spank. It absorbs the derivational frame from `Spanker.md`, the language and library comparison from `Pyst.md`, the architectural and operational state from `Architecture.md`, `Infra.md`, `Codebase.md`, `HEC.md`, `Standards.md`, `Splunk.md`, and the positioning from `Product.md`. It names what to keep verbatim, what to restate differently, and what to replace. It is not a rewrite plan in the sense of "throw it out." It is a recomposition plan: preserve the wins, sharpen the contracts, close the Splunk-interop gaps, and give the code and the documents a common spine for verification.
+This document is a proposal. It does not by itself change the code or the other documents; it is the planned shape of the combination of what exists and what comes next. The Phase 0 exit criterion in `§12` is the moment the combination becomes enforceable. Sparst is updated when the design target changes — when a phase closes, when a miss is corrected, or when an open question in `§13` resolves. Implementation status belongs in `Plan.md`; resolved subsystem contracts move to the relevant Reference doc under `docs/`. Sibling documents: `Plan.md` (active tracking), `docs/Errors.md`, `docs/Network.md`, `docs/Observability.md` (reference contracts), `research/Pyst.md`, `research/Infrust.md`, `research/Stast.md`, `research/Indust.md` (analytical inputs).
 
-Priorities, stated once and referenced throughout: Splunk alignment (functional decomposition, data flows, persistence, configuration, SPL processing); shipper interoperability; ready mix-and-match of components; consistent user-facing terminology; test and verification tooling that mechanically enforces the standards; branded functionality and performance bundles; artifacts (diagrams, state machines, entity relationships) co-maintained with code through phases that combine specification, documentation, implementation, and verification.
+---
 
-## Contents
+## Table of Contents
 
-1. Wins to Preserve
-2. Misses to Overcome
-3. Splunk Alignment — Functional Decomposition and Data Flows
-4. Persistence and Durability
-5. Configuration, Control Plane, SPL
-6. Interoperability with Shippers
-7. Composability — Components, Interfaces, Mix-and-Match
-8. Terminology — User-Facing and Internal
-9. Infrastructure and Standards — Enforced by Tooling
-10. Product Line — Functionality and Performance Bundles
-11. Diagrams and Models — Formats, Sources, Maintenance
-12. Phased Evolution — Specification, Documentation, Implementation, Verification
-13. Open Questions Deferred
+1. [Wins to Preserve](#1-wins-to-preserve)
+2. [Misses to Overcome](#2-misses-to-overcome)
+3. [Splunk Alignment — Functional Decomposition and Data Flows](#3-splunk-alignment--functional-decomposition-and-data-flows)
+4. [Persistence and Durability](#4-persistence-and-durability)
+5. [Configuration, Control Plane, SPL](#5-configuration-control-plane-spl)
+6. [Interoperability with Shippers](#6-interoperability-with-shippers)
+7. [Composability — Components, Interfaces, Mix-and-Match](#7-composability--components-interfaces-mix-and-match)
+8. [Terminology — User-Facing and Internal](#8-terminology--user-facing-and-internal)
+9. [Infrastructure and Standards — Enforced by Tooling](#9-infrastructure-and-standards--enforced-by-tooling)
+10. [Product Line — Functionality and Performance Bundles](#10-product-line--functionality-and-performance-bundles)
+11. [Diagrams and Models — Formats, Sources, Maintenance](#11-diagrams-and-models--formats-sources-maintenance)
+12. [Phased Evolution — Specification, Documentation, Implementation, Verification](#12-phased-evolution--specification-documentation-implementation-verification)
+13. [Open Questions Deferred](#13-open-questions-deferred)
+
+---
 
 ## 1. Wins to Preserve
 
@@ -170,7 +172,7 @@ The storage interface (`BucketWriter`, `BucketReader`, `PartitionManager`) is ge
 
 ### 5.1 Configuration
 
-Four sources, ascending precedence: compiled defaults, TOML file, CLI argv, `SP_*` environment. Frozen dataclasses. Single `_SP_ENV_TABLE` tuple-list. No hot reload; SIGHUP is graceful restart. The effective config is logged at INFO at startup with `_source` annotations. `--show-config` prints it and exits.
+Three sources, ascending precedence: compiled defaults, TOML file, `SP_*` environment. The CLI provides `--config` for path selection and `show-config` for inspection; it does not provide per-field overrides. Frozen structs validated post-merge. No hot reload; SIGHUP is graceful restart. The effective config is rendered at startup when `show-config` is invoked. When per-field CLI overrides become necessary they will be added as a fourth layer between TOML and env via figment; the precedence order is stated here so that addition has a defined home.
 
 ### 5.2 Control plane
 
@@ -633,4 +635,10 @@ Spast does not resolve these and flags them for a follow-up session. Each is mat
 
 ---
 
-This document is a proposal. It does not by itself change the code or the other documents. It is the planned shape of the combination of what exists and what comes next; the Phase 0 exit criterion is the moment the combination becomes enforceable.
+## References
+
+[1] Splunk, *HTTP Event Collector documentation*, docs.splunk.com/Documentation/Splunk/latest/Data/UsetheHTTPEventCollector.
+[2] Splunk, *Splunk Search Reference — SPL commands*, docs.splunk.com/Documentation/Splunk/latest/SearchReference.
+[3] Splunk, *Indexes and indexers — bucket lifecycle*, docs.splunk.com/Documentation/Splunk/latest/Indexer/HowSplunkstoresindexes.
+[4] SQLite Consortium, *Write-Ahead Logging*, sqlite.org/wal.html.
+[5] Terence Parr, *The Definitive ANTLR 4 Reference*, Pragmatic Bookshelf, 2013.

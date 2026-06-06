@@ -13,6 +13,7 @@ This document changes when a new error variant is added, a recovery class is rec
 3. [Backpressure path](#3-backpressure-path)
 4. [Shutdown](#4-shutdown)
 5. [Anti-patterns](#5-anti-patterns)
+6. [Known gaps requiring follow-up](#6-known-gaps-requiring-follow-up)
 
 ---
 
@@ -29,10 +30,19 @@ single `match` at the top of a subsystem can route every error it might surface:
   and the *target* (path or peer address) it was operating on. Constructors
   `SpankError::io(...)` and `SpankError::io_path(...)` enforce the convention; do
   not build the variant by hand.
-- `Hec { code, text, http_status }` — Splunk HEC wire errors. `code` is the
-  Splunk numeric code; `text` is the human string; `http_status` is what the
-  receiver should return. Producing this variant is the contract for converting a
-  protocol failure into an HTTP response.
+- `Hec { code, text, http_status }` — Splunk HEC wire errors on the *outbound*
+  path. `code` is the Splunk numeric code; `text` is the human string;
+  `http_status` is the status returned by the downstream HEC endpoint. This variant
+  is the correct surface for errors that originate when spank-rs acts as a
+  *forwarder* — sending events to a downstream HEC endpoint and receiving a wire
+  error in response. It is not used today because the forwarder (HEC-DES2) does not
+  exist yet.
+  On the *inbound* path, `spank-hec::outcome::RequestOutcome` is the
+  protocol-conversion surface — it translates ingest outcomes directly into HTTP
+  responses without routing through `SpankError`. The two surfaces are
+  intentionally separate: `RequestOutcome` is for responding to a sender;
+  `SpankError::Hec` is for propagating a failure received from a downstream HEC
+  receiver. No code change is needed until HEC-DES2 is implemented.
 - `Storage { message }` — wrapped backend errors (rusqlite, future Duck/PG).
 - `Auth { message }` — token unknown, principal denied, channel rejected.
 - `Lifecycle { message }` — startup failure or shutdown timeout. Component-fatal.
@@ -118,6 +128,31 @@ the mistake in a way that was hard to diagnose.
 - Do not invent new recovery classes at call sites. If `Retryable` is wrong for
   your case, the variant is wrong, not the classification.
 
+## 6. Known gaps requiring follow-up
+
+Two open issues whose correct fix is known but not yet implemented. Neither
+blocks the current build; both are observable in production.
+
+`Drain::wait` side is unused in the production path. `Drain::wait` is
+implemented and tested in isolation, but `main::serve` joins the consumer task
+handle directly rather than calling `drain.wait(tag, ...)` per active tag. For
+the current single-consumer topology this produces equivalent ordering, but it
+means the per-tag durability guarantee that `Drain` is designed to provide is
+not exercised. The wait side must be wired before the HEC ACK endpoint can be
+implemented. When `wait()` is wired, a `false` return (timeout) must be treated
+as a data-loss condition, not ignored. *Open: see Plan.md item OBS-DRAIN1.*
+
+TCP receiver blocks on backpressure instead of shedding load. In
+`spank-tcp::receiver::run_connection` the send to the downstream consumer uses
+`out.send(...).await`, which blocks when the channel is full. This is the
+anti-pattern prohibited in `§5`: an `await` hides the backpressure signal until
+the queue drains, at which point the information is worthless. The correct fix
+is to replace `out.send(...).await` with `out.try_send(...)`; on `TrySendError::Full`,
+increment `spank.tcp.lines_dropped_total` (a counter that does not yet exist in
+`spank-obs::metrics::names`) and log a structured `error_event!` with the peer
+address. Until the fix lands, a slow consumer will stall the TCP receiver task
+rather than shedding the overloaded line. *Open: see Plan.md item TCP-BP1.*
+
 ---
 
 ## References
@@ -125,3 +160,4 @@ the mistake in a way that was hard to diagnose.
 [1] Tokio project, *CancellationToken*, tokio_util::sync documentation, docs.rs/tokio-util.
 [2] Tokio project, *tokio::sync::Notify*, tokio documentation, docs.rs/tokio.
 [3] Splunk, *HTTP Event Collector error codes*, Splunk documentation — code 9 ("server busy"), code 0 (success).
+[4] Tokio project, *tokio::sync::mpsc::Sender::try_send*, tokio documentation, docs.rs/tokio — `TrySendError::Full` semantics.

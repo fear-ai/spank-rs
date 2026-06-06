@@ -74,14 +74,17 @@ for each.
 Call sites use the constants in `spank-obs::metrics::names`, never literal
 strings; renaming a metric is one edit instead of grep-and-replace.
 
-Two items in this table are flagged for future resolution. `spank.tcp.syscall_errors_total`
+Three items in this table are flagged for future resolution. `spank.tcp.syscall_errors_total`
 uses the label key `syscall` in the emitting code (`spank-tcp::receiver`); any
-dashboard or alert expression must use `syscall`, not `op` — any existing dashboards
-built against `op` must be updated. `spank.store.insert_duration_seconds` is listed
-as a live histogram but the SQLite backend (`spank-store::sqlite`) does not currently
-emit it — only the counter `spank.store.inserts_total` is incremented at the commit
-site; the histogram constant exists in `spank-obs::metrics::names` and instrumenting
-`SqliteBackend::commit` is the remaining step.
+dashboard or alert expression must use `syscall`, not `op`. `spank.store.insert_duration_seconds`
+is listed as a live histogram but the SQLite backend (`spank-store::sqlite`) does not
+currently emit it — only the counter `spank.store.inserts_total` is incremented at
+the commit site; the constant exists in `spank-obs::metrics::names` and instrumenting
+`SqliteBackend::commit` is the remaining step (see Plan.md item OBS-HIST1). A fourth
+metric, `spank.tcp.lines_dropped_total`, is referenced in `docs/Errors.md §6` as
+the correct signal for TCP receiver load-shedding but does not yet have a constant
+in `spank-obs::metrics::names` or an entry in this table; it will be added when
+Plan.md item TCP-BP1 is implemented.
 
 ## 3. Baseline numbers
 
